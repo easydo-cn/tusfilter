@@ -190,16 +190,21 @@ class TusFilter(object):
         # 'concatenation-unfinished',  # todo
     ]
 
-    def __init__(self, app, upload_path, tmp_dir='/tmp/upload', expire=60*60*24*30, send_file=False, max_size=2**30):
+    def __init__(self, app, upload_path, sdm=None, session_dir='/var/session',
+                 expire=60*60*24*30, send_file=False, max_size=2**30):
         self.app = app
-        self.tmp_dir = tmp_dir
+        self.sdm = sdm
+        self.session_dir = session_dir
         self.upload_path = upload_path
         self.expire = expire
         self.send_file = send_file
         self.max_size = max_size
 
-        if not os.path.exists(tmp_dir):
-            os.makedirs(tmp_dir)
+        if not os.path.exists(session_dir):
+            os.makedirs(session_dir)
+            session_file = os.path.join(session_dir, 'sessions')
+            with open(session_file, 'w') as f:
+                json.dump(dict(), f)
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
@@ -420,27 +425,38 @@ class TusFilter(object):
             env.req.body = self.get_fpath(env).encode('utf-8')
 
     def create_files(self, env):
-        self.cleanup()
+        # self.cleanup()
         info = dict()
         info['partial'] = env.info.get('partial', False)
         info['parts'] = env.info.get('parts')
         info['upload_metadata'] = env.info.get('upload_metadata')
 
+        device = info['upload_metadata'].get('device', 'default')
         uid = uuid.uuid4().hex
-        fpath = self.get_fpath(env, uid)
-        while os.path.exists(fpath):
-            uid = uuid.uuid4().hex
-            fpath = self.get_fpath(uid)
+        key = self.sdm.gen_key(device, prefix='', suffix='')
+        size = env.info['upload_length']
+        session_id = self.sdm.multiput_new(device, key, size)
+        fpath = self.sdm.os_path(device, key)
         env.temp['uid'] = uid
-        with open(fpath, 'wb') as _:
-            pass
+        info['upload_length'] = env.info['upload_length']
+        info_path = self.get_info_path(env)
+        session = {
+            'device': device,
+            'key': key,
+            'session_id': session_id,
+            'upload_succeeded': False,
+        }
+        sessions = self.load_sessions()
+        sessions[uid] = session
+        session_file = os.path.join(self.session_dir, 'sessions')
+        with open(session_file, 'w') as f:
+            json.dump(sessions, f)
+        with open(info_path, 'w') as f:
+            json.dump(info, f, indent=4)
+
         if info['parts']:
             self.concat_parts(env, fpath)
 
-        info['upload_length'] = env.info['upload_length']
-        info_path = self.get_info_path(env, uid)
-        with open(info_path, 'w') as f:
-            json.dump(info, f, indent=4)
         return uid
 
     def check_parts(self, env):
@@ -494,11 +510,23 @@ class TusFilter(object):
 
     def get_fpath(self, env, uid=None):
         uid = uid or env.temp['uid']
-        return os.path.join(self.tmp_dir, uid)
+        sessions = self.load_sessions()
+        try:
+            session = sessions[uid]
+            device = session['device']
+            key = session['key']
+            return self.sdm.os_path(device, key)
+        except KeyError:
+            raise MissingUidError()
 
     def get_info_path(self, env, uid=None):
-        fpath = self.get_fpath(env, uid)
-        return fpath + '.info'
+        uid = uid or env.temp['uid']
+        return os.path.join(self.session_dir, uid + '.info')
+
+    def load_sessions(self):
+        session_file = os.path.join(self.session_dir, 'sessions')
+        with open(session_file) as f:
+            return json.load(f)
 
     def get_current_offset(self, env):
         fpath = self.get_fpath(env)
@@ -566,11 +594,12 @@ class TusFilter(object):
             raise ConflictUploadLengthError()
 
         body = env.req.body_file
-        with open(fpath, 'ab+') as f:
-            f.seek(0, os.SEEK_END)
-            body.seek(0)
-            shutil.copyfileobj(body, f)
-            offset = f.tell()
+        body.seek(0)
+        sessions = self.load_sessions()
+        session = sessions[env.temp['uid']]
+        device = session['device']
+        session_id = session['session_id']
+        offset = self.sdm.multiput(device, session_id, body)
 
         if cur_length == -1 and length >= 0:
             info['upload_length'] = length
@@ -585,7 +614,7 @@ class TusFilter(object):
         env.resp.status = '%i %s' % (error.status_code, error.reason)
 
     def cleanup(self):
-        for fname in os.listdir(self.tmp_dir):
-            fpath = os.path.join(self.tmp_dir, fname)
+        for fname in os.listdir(self.session_dir):
+            fpath = os.path.join(self.session_dir, fname)
             if os.path.isfile(fpath) and time.time() - os.path.getmtime(fpath) > self.expire:
                 os.remove(fpath)
