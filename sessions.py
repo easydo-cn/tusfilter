@@ -1,6 +1,7 @@
 # -*-coding:utf-8 -*-
 import os
 import json
+import time
 
 
 class Sessions:
@@ -9,7 +10,7 @@ class Sessions:
         if not os.path.exists(session_dir):
             os.makedirs(session_dir)
 
-    def _os_path(self, upload_session):
+    def os_path(self, upload_session):
         return os.path.join(self.tmp, upload_session)
 
     def new(self, upload_session, device, key, **kwargs):
@@ -18,12 +19,18 @@ class Sessions:
             'key': key,
         }
         session.update(kwargs)
-        with open(self._os_path(upload_session), 'w') as f:
+        with open(self.os_path(upload_session), 'w') as f:
             json.dump(session, f)
 
     def load(self, upload_session):
-        with open(self._os_path(upload_session)) as f:
+        with open(self.os_path(upload_session)) as f:
             return json.load(f)
 
     def delete(self, upload_session):
-        os.remove(self._os_path(upload_session))
+        os.remove(self.os_path(upload_session))
+
+    def query(self, expire):
+        for upload_session in os.listdir(self.tmp):
+            fpath = self.os_path(upload_session)
+            if os.path.isfile(fpath) and time.time() - os.path.getmtime(fpath) > expire:
+                yield self.load(upload_session)

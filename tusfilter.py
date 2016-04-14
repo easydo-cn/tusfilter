@@ -407,11 +407,7 @@ class TusFilter(object):
         env.resp.status = http.NO_CONTENT
 
     def finish_upload(self, env):
-        info_path = self.get_info_path(env)
-        if not os.path.exists(info_path):
-            raise NotFoundError()
-        with open(info_path, 'r') as f:
-            config = json.load(f)
+        config = self.sessions.load(env.temp['uid'])
         if config['partial']:
             return
         env.temp['upload_finished'] = True
@@ -446,7 +442,7 @@ class TusFilter(object):
     def check_parts(self, env):
         parts = env.info['parts']
         for uid in parts:
-            info_path = self.get_info_path(env, uid)
+            info_path = self.sessions.os_path(uid)
             if os.path.exists(info_path):
                 raise UploadNotFinishedError()
 
@@ -460,20 +456,14 @@ class TusFilter(object):
         env.info['upload_length'] = os.path.getsize(fpath)
 
     def delete_files(self, env):
-        fpath = self.get_fpath(env)
-        info_path = self.get_info_path(env)
-        if os.path.exists(fpath):
-            os.remove(fpath)
-        if os.path.exists(info_path):
-            os.remove(info_path)
+        uid = env.temp['uid']
+        session = self.sessions.load(uid)
+        self.sdm.multiput_delete(session['device'], session['session_id'])
+        self.sessions.delete(uid)
 
     def check_files(self, env):
-        fpath = self.get_fpath(env)
-        info_path = self.get_info_path(env)
-        if not os.path.exists(fpath) or not os.path.exists(info_path):
-            raise NotFoundError()
-        with open(info_path, 'r') as f:
-            config = json.load(f)
+        uid = env.temp['uid']
+        config = self.sessions.load(uid)
         modify_flag = False
 
         length = env.info['upload_length']
@@ -489,8 +479,7 @@ class TusFilter(object):
             modify_flag = True
 
         if modify_flag:
-            with open(info_path, 'w') as f:
-                json.dump(config, f, indent=4)
+            self.sessions.new(uid, config['device'], config['key'], **config)
 
     def get_fpath(self, env, uid=None):
         uid = uid or env.temp['uid']
@@ -500,17 +489,11 @@ class TusFilter(object):
             key = session['key']
             return self.sdm.os_path(device, key)
         except KeyError:
-            raise MissingUidError()
-
-    def get_info_path(self, env, uid=None):
-        uid = uid or env.temp['uid']
-        return os.path.join(self.sessions.tmp, uid)
+            raise NotFoundError()
 
     def get_current_offset(self, env):
-        fpath = self.get_fpath(env)
-        if not os.path.exists(fpath):
-            raise NotFoundError()
-        return os.path.getsize(fpath)
+        session = self.sessions.load(env.temp['uid'])
+        return session['upload_length']
 
     def get_end_length(self, env):
         self.load_info_data(env)
@@ -519,12 +502,10 @@ class TusFilter(object):
             return env.info['upload_length']
         upload_length = 0
         for uid in parts:
-            uid_info_path = self.get_info_path(env, uid)
-            with open(uid_info_path, 'r') as f:
-                uid_info = json.load(f)
-                if uid_info['upload_length'] == -1:
-                    return -2  # Upload-Concat
-                upload_length += uid_info['upload_length']
+            uid_info = self.sessions.load(uid)
+            if uid_info['upload_length'] == -1:
+                return -2  # Upload-Concat
+            upload_length += uid_info['upload_length']
         return upload_length
 
     def get_metadata(self, env):
@@ -542,30 +523,20 @@ class TusFilter(object):
     def load_info_data(self, env):
         if env.temp['info_loaded']:
             return
-        info_path = self.get_info_path(env)
-        if not os.path.exists(info_path):
-            raise NotFoundError()
-        with open(info_path, 'r') as f:
-            info = json.load(f)
+        info = self.sessions.load(env.temp['uid'])
         env.info.update(info)
         env.temp['info_loaded'] = True
 
     def get_fexpires(self, env):
         fpath = self.get_fpath(env)
-        if not os.path.exists(fpath):
-            raise NotFoundError()
         seconds = os.path.getmtime(fpath) + self.expire
         # rfc 7231  datetime format
         return time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(seconds))
 
     def write_data(self, env):
-        fpath = self.get_fpath(env)
-        info_path = self.get_info_path(env)
-        if not os.path.exists(fpath) or not os.path.exists(info_path):
-            raise NotFoundError()
-
-        with open(info_path, 'r') as f:
-            info = json.load(f)
+        uid = env.temp['uid']
+        info_path = self.sessions.os_path(uid)
+        info = self.sessions.load(uid)
         cur_length = info['upload_length']
         length = env.info['upload_length']
         if cur_length != -1 and length != cur_length:
@@ -573,13 +544,11 @@ class TusFilter(object):
 
         body = env.req.body_file
         body.seek(0)
-        session = self.sessions.load(env.temp['uid'])
-        offset = self.sdm.multiput(session['device'], session['session_id'], body.read())
+        offset = self.sdm.multiput(info['device'], info['session_id'], body.read())
 
         if cur_length == -1 and length >= 0:
             info['upload_length'] = length
-            with open(info_path, 'w') as f:
-                json.dump(info, f)
+            self.sessions.new(uid, info['device'], info['key'], **info)
         else:
             os.utime(info_path, None)
 
@@ -589,12 +558,6 @@ class TusFilter(object):
         env.resp.status = '%i %s' % (error.status_code, error.reason)
 
     def cleanup(self):
-        for file_name in os.listdir(self.sessions.tmp):
-            fpath = os.path.join(self.sessions.tmp, file_name)
-            if os.path.isfile(fpath) and time.time() - os.path.getmtime(fpath) > self.expire:
-                with open(fpath) as f:
-                    info = json.load(f)
-                    device = info['device']
-                    key = info['key']
-                    self.sdm.remove(device, key)
-                os.remove(fpath)
+        for session in self.sessions.query(expire=self.expire):
+            self.sdm.multiput_delete(session['device'], session['session_id'])
+            self.sessions.delete(session)
