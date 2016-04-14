@@ -432,9 +432,8 @@ class TusFilter(object):
         size = env.info['upload_length']
         uid = uuid.uuid4().hex
         env.temp['uid'] = uid
-        session_id = self.sdm.multiput_new(device, key, size)
 
-        info['session_id'] = session_id
+        info['session_id'] = self.sdm.multiput_new(device, key, size)
         info['upload_length'] = size
         info['parent_rev'] = env.req.environ.get('parent_rev')
         self.sessions.new(uid, device, key, **info)
@@ -574,11 +573,8 @@ class TusFilter(object):
 
         body = env.req.body_file
         body.seek(0)
-        uid = env.temp['uid']
-        session = self.sessions.load(uid)
-        device = session['device']
-        session_id = session['session_id']
-        offset = self.sdm.multiput(device, session_id, body)
+        session = self.sessions.load(env.temp['uid'])
+        offset = self.sdm.multiput(session['device'], session['session_id'], body.read())
 
         if cur_length == -1 and length >= 0:
             info['upload_length'] = length
