@@ -2,7 +2,6 @@
 
 import os
 import time
-import json
 import uuid
 import webob
 import shutil
@@ -19,6 +18,8 @@ try:
     import urlparse
 except ImportError:
     import urllib.parse as urlparse
+
+from .sessions import Sessions
 
 
 class Error(Exception):
@@ -190,14 +191,14 @@ class TusFilter(object):
         # 'concatenation-unfinished',  # todo
     ]
 
-    def __init__(self, app, upload_path, sdm, sessions, expire=60*60*24*30, send_file=False, max_size=2**30):
+    def __init__(self, app, upload_path, sdm, tmp_dir='/var/session', expire=60*60*24*30, send_file=False, max_size=2**30):
         self.app = app
         self.sdm = sdm
         self.upload_path = upload_path
         self.expire = expire
         self.send_file = send_file
         self.max_size = max_size
-        self.sessions = sessions
+        self.sessions = Sessions(tmp_dir)
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
@@ -431,7 +432,6 @@ class TusFilter(object):
 
         info['session_id'] = self.sdm.multiput_new(device, key, size)
         info['upload_length'] = size
-        info['parent_rev'] = env.req.environ.get('parent_rev')
         self.sessions.new(uid, device, key, **info)
 
         fpath = self.sdm.os_path(device, key)
@@ -479,7 +479,7 @@ class TusFilter(object):
             modify_flag = True
 
         if modify_flag:
-            self.sessions.new(uid, config['device'], config['key'], **config)
+            self.sessions.update(uid, **config)
 
     def get_fpath(self, env, uid=None):
         uid = uid or env.temp['uid']
@@ -548,7 +548,7 @@ class TusFilter(object):
 
         if cur_length == -1 and length >= 0:
             info['upload_length'] = length
-            self.sessions.new(uid, info['device'], info['key'], **info)
+            self.sessions.update(uid, **info)
         else:
             os.utime(info_path, None)
 

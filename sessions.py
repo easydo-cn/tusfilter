@@ -29,6 +29,12 @@ class Sessions:
     def delete(self, upload_session):
         os.remove(self.os_path(upload_session))
 
+    def update(self, upload_session, **kwargs):
+        session = self.load(upload_session)
+        session.update(kwargs)
+        with open(self.os_path(upload_session), 'w') as f:
+            json.dump(session, f)
+
     def query(self, expire):
         for upload_session in os.listdir(self.tmp):
             fpath = self.os_path(upload_session)
