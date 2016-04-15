@@ -191,14 +191,15 @@ class TusFilter(object):
         # 'concatenation-unfinished',  # todo
     ]
 
-    def __init__(self, app, upload_path, sdm, tmp_dir='/var/session', expire=60*60*24*30, send_file=False, max_size=2**30):
+    def __init__(self, app, upload_path, sdm, session_dir='/var/session',
+                 expire=60 * 60 * 24 * 30, send_file=False, max_size=2 ** 30):
         self.app = app
         self.sdm = sdm
         self.upload_path = upload_path
         self.expire = expire
         self.send_file = send_file
         self.max_size = max_size
-        self.sessions = Sessions(tmp_dir)
+        self.sessions = Sessions(session_dir)
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
@@ -237,7 +238,7 @@ class TusFilter(object):
                 raise MissingVersionError()
             if version not in self.versions:
                 raise UnsupportedVersionError()
-        version = version or self.versions[0]   # OPTIONS version maybe None
+        version = version or self.versions[0]  # OPTIONS version maybe None
         env.temp['version'] = version
         env.resp.headers['Tus-Resumable'] = version
 
