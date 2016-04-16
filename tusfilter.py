@@ -19,7 +19,7 @@ try:
 except ImportError:
     import urllib.parse as urlparse
 
-from .sessions import Sessions
+from sessions import Sessions
 
 
 class Error(Exception):
