@@ -2,7 +2,6 @@
 
 import os
 import time
-import uuid
 import webob
 import shutil
 import hashlib
@@ -18,9 +17,6 @@ try:
     import urlparse
 except ImportError:
     import urllib.parse as urlparse
-
-from sessions import Sessions
-
 
 class Error(Exception):
     status_code = 0
@@ -191,7 +187,7 @@ class TusFilter(object):
         # 'concatenation-unfinished',  # todo
     ]
 
-    def __init__(self, app, upload_path, sdm, session_dir='/var/session',
+    def __init__(self, app, upload_path, sdm,
                  expire=60 * 60 * 24 * 30, send_file=False, max_size=2 ** 30):
         self.app = app
         self.sdm = sdm
@@ -199,7 +195,6 @@ class TusFilter(object):
         self.expire = expire
         self.send_file = send_file
         self.max_size = max_size
-        self.sessions = Sessions(session_dir)
 
     def __call__(self, environ, start_response):
         req = webob.Request(environ)
@@ -409,7 +404,7 @@ class TusFilter(object):
         env.resp.status = http.NO_CONTENT
 
     def finish_upload(self, env):
-        config = self.sessions.load(env.temp['uid'])
+        config = self.sdm.multiput_sessions.load(env.temp['uid'])
         if config['partial']:
             return
         env.temp['upload_finished'] = True
@@ -419,7 +414,7 @@ class TusFilter(object):
             env.req.body = self.get_fpath(env).encode('utf-8')
 
     def create_files(self, env):
-        self.cleanup()
+        self.sdm.multiput_cleanup(self.expire)
         info = dict()
         info['partial'] = env.info.get('partial', False)
         info['parts'] = env.info.get('parts')
@@ -428,12 +423,11 @@ class TusFilter(object):
         device = env.req.environ.get('mdfs_device', 'default')
         key = env.req.environ.get('mdfs_key', self.sdm.gen_key(device))
         size = env.info['upload_length']
-        uid = uuid.uuid4().hex
-        env.temp['uid'] = uid
-
-        info['session_id'] = self.sdm.multiput_new(device, key, size)
         info['upload_length'] = size
-        self.sessions.new(uid, device, key, **info)
+
+        #uid = uuid.uuid4().hex
+        env.temp['uid'] = uid = self.sdm.multiput_new(device, key, size)
+        self.sdm.multiput_sessions.update(uid, **info)
 
         fpath = self.sdm.os_path(device, key)
         if info['parts']:
@@ -443,7 +437,7 @@ class TusFilter(object):
     def check_parts(self, env):
         parts = env.info['parts']
         for uid in parts:
-            info_path = self.sessions.os_path(uid)
+            info_path = self.sdm.multiput_sessions.os_path(uid)
             if os.path.exists(info_path):
                 raise UploadNotFinishedError()
 
@@ -458,9 +452,8 @@ class TusFilter(object):
 
     def delete_files(self, env):
         uid = env.temp['uid']
-        session = self.sessions.load(uid)
+        session = self.sdm.multiput_sessions.load(uid)
         self.sdm.multiput_delete(session['device'], session['session_id'])
-        self.sessions.delete(uid)
 
     def check_files(self, env):
         uid = env.temp['uid']
@@ -480,12 +473,12 @@ class TusFilter(object):
             modify_flag = True
 
         if modify_flag:
-            self.sessions.update(uid, **config)
+            self.sdm.multiput_sessions.update(uid, **config)
 
     def get_fpath(self, env, uid=None):
         uid = uid or env.temp['uid']
         try:
-            session = self.sessions.load(uid)
+            session = self.sdm.multiput_sessions.load(uid)
             device = session['device']
             key = session['key']
             return self.sdm.os_path(device, key)
@@ -493,7 +486,7 @@ class TusFilter(object):
             raise NotFoundError()
 
     def get_current_offset(self, env):
-        session = self.sessions.load(env.temp['uid'])
+        session = self.sdm.multiput_sessions.load(env.temp['uid'])
         return session['upload_length']
 
     def get_end_length(self, env):
@@ -503,7 +496,7 @@ class TusFilter(object):
             return env.info['upload_length']
         upload_length = 0
         for uid in parts:
-            uid_info = self.sessions.load(uid)
+            uid_info = self.sdm.multiput_sessions.load(uid)
             if uid_info['upload_length'] == -1:
                 return -2  # Upload-Concat
             upload_length += uid_info['upload_length']
@@ -524,7 +517,7 @@ class TusFilter(object):
     def load_info_data(self, env):
         if env.temp['info_loaded']:
             return
-        info = self.sessions.load(env.temp['uid'])
+        info = self.sdm.multiput_sessions.load(env.temp['uid'])
         env.info.update(info)
         env.temp['info_loaded'] = True
 
@@ -536,8 +529,8 @@ class TusFilter(object):
 
     def write_data(self, env):
         uid = env.temp['uid']
-        info_path = self.sessions.os_path(uid)
-        info = self.sessions.load(uid)
+        info_path = self.sdm.multiput_sessions.os_path(uid)
+        info = self.sdm.multiput_sessions.load(uid)
         cur_length = info['upload_length']
         length = env.info['upload_length']
         if cur_length != -1 and length != cur_length:
@@ -549,7 +542,7 @@ class TusFilter(object):
 
         if cur_length == -1 and length >= 0:
             info['upload_length'] = length
-            self.sessions.update(uid, **info)
+            self.sdm.multiput_sessions.update(uid, **info)
         else:
             os.utime(info_path, None)
 
@@ -558,7 +551,3 @@ class TusFilter(object):
     def finish_error(self, env, error):
         env.resp.status = '%i %s' % (error.status_code, error.reason)
 
-    def cleanup(self):
-        for session in self.sessions.query(expire=self.expire):
-            self.sdm.multiput_delete(session['device'], session['session_id'])
-            self.sessions.delete(session)
