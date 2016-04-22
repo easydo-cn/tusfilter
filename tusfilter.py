@@ -188,7 +188,7 @@ class TusFilter(object):
     ]
 
     def __init__(self, app, upload_path, sdm,
-                 expire=60 * 60 * 24 * 30, send_file=False, max_size=2 ** 30):
+                 expire=60 * 60 * 24 * 30, send_file=False, max_size=2 * 2 ** 40):
         self.app = app
         self.sdm = sdm
         self.upload_path = upload_path
