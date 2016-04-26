@@ -427,7 +427,7 @@ class TusFilter(object):
 
         #uid = uuid.uuid4().hex
         env.temp['uid'] = uid  = device + '/' + key
-	info['session_id'] = self.sdm.multiput_new(device, key, size)
+        info['session_id'] = self.sdm.multiput_new(device, key, size)
         self.sdm.sessions.update(device, key, **info)
 
         fpath = self.sdm.os_path(device, key)
