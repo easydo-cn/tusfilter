@@ -389,8 +389,6 @@ class TusFilter(object):
         uid = os.path.relpath(path, self.upload_path)
         if uid == '.':
             return None
-        if '/' in uid:
-            raise InvalidUidError()
         return uid
 
     def get_url_from_uid(self, env, uid=None):
