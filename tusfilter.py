@@ -244,7 +244,7 @@ class TusFilter(object):
         elif method == 'PATCH':
             self.patch(env)
             if env.temp['upload_finished']:
-                session = self.sessions.load(uid)
+                session = self.sdm.sessions.load(*uid.split('/', 1))
                 self.sdm.multiput_save(session['device'], session['session_id'])
         elif method == 'OPTIONS':
             self.options(env)
