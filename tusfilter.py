@@ -386,7 +386,7 @@ class TusFilter(object):
 
     def get_uid_from_url(self, url):
         path = urlparse.urlparse(url).path
-        uid = os.path.relpath(path, self.upload_path)
+        uid = path[len(self.upload_path)+1:]
         if uid == '.':
             return None
         if '/' in uid:
