@@ -244,7 +244,7 @@ class TusFilter(object):
         elif method == 'PATCH':
             self.patch(env)
             if env.temp['upload_finished']:
-                session = self.sessions.load(uid)
+                session = self.sdm.sessions.load(*uid.split('/', 1))
                 self.sdm.multiput_save(session['device'], session['session_id'])
         elif method == 'OPTIONS':
             self.options(env)
@@ -389,8 +389,6 @@ class TusFilter(object):
         uid = path[len(self.upload_path)+1:]
         if uid == '.':
             return None
-        if '/' in uid:
-            raise InvalidUidError()
         return uid
 
     def get_url_from_uid(self, env, uid=None):
