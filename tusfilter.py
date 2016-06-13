@@ -486,7 +486,7 @@ class TusFilter(object):
 
     def get_current_offset(self, env):
         session = self.sdm.sessions.load(*env.temp['uid'].split('/', 1))
-        return session['upload_length']
+        return self.sdm.multiput_offset(session['device'], session['session_id'])
 
     def get_end_length(self, env):
         self.load_info_data(env)
