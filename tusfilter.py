@@ -385,7 +385,7 @@ class TusFilter(object):
         env.info['upload_metadata'] = upload_metadata
 
     def get_uid_from_url(self, url):
-        path = urlparse.urlparse(url).path
+        path = urlparse.unquote(urlparse.urlparse(url).path)
         uid = path[len(self.upload_path)+1:]
         if uid == '.':
             return None
