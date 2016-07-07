@@ -188,9 +188,10 @@ class TusFilter(object):
     ]
 
     def __init__(self, app, upload_path, sdm,
-                 expire=60 * 60 * 24 * 30, send_file=False, max_size=2 * 2 ** 40):
+                 api_base='', expire=60 * 60 * 24 * 30, send_file=False, max_size=2 * 2 ** 40):
         self.app = app
         self.sdm = sdm
+        self.api_base = api_base
         self.upload_path = upload_path
         self.expire = expire
         self.send_file = send_file
@@ -270,7 +271,7 @@ class TusFilter(object):
         self.create_files(env)
 
         env.resp.headers['Upload-Expires'] = self.get_fexpires(env)
-        env.resp.headers['Location'] = '/'.join([self.upload_path, env.temp['uid']])
+        env.resp.headers['Location'] = self.api_base +  '/'.join([self.upload_path, env.temp['uid']])
         env.resp.status = http.CREATED
 
     def head(self, env):
