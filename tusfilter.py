@@ -207,6 +207,11 @@ class TusFilter(object):
             return self.app(environ, start_response)
         try:
             self.handle(env)
+        except IOError as e:
+            if e.errno == 2:
+                self.finish_error(env, NotFoundError())
+            else:
+                self.finish_error(env, e)
         except Error as e:
             self.finish_error(env, e)
 
