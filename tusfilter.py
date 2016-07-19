@@ -418,7 +418,7 @@ class TusFilter(object):
             env.req.body = self.get_fpath(env).encode('utf-8')
 
     def create_files(self, env):
-        self.sdm.cleanup(self.expire)
+        # self.sdm.cleanup(self.expire)  # need clean else
         info = dict()
         info['partial'] = env.info.get('partial', False)
         info['parts'] = env.info.get('parts')
