@@ -554,5 +554,5 @@ class TusFilter(object):
         return offset
 
     def finish_error(self, env, error):
-        env.resp.status = '%i %s' % (error.status_code, error.reason)
+        env.resp.status = '%i %s' % (getattr(error, 'status_code', 0), error.reason)
 
