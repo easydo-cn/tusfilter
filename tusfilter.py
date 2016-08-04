@@ -188,9 +188,10 @@ class TusFilter(object):
     ]
 
     def __init__(self, app, upload_path, sdm,
-                 expire=60 * 60 * 24 * 30, send_file=False, max_size=2 * 2 ** 40):
+                 api_base='', expire=60 * 60 * 24 * 30, send_file=False, max_size=2 * 2 ** 40):
         self.app = app
         self.sdm = sdm
+        self.api_base = api_base
         self.upload_path = upload_path
         self.expire = expire
         self.send_file = send_file
@@ -275,7 +276,7 @@ class TusFilter(object):
         self.create_files(env)
 
         env.resp.headers['Upload-Expires'] = self.get_fexpires(env)
-        env.resp.headers['Location'] = '/'.join([self.upload_path, env.temp['uid']])
+        env.resp.headers['Location'] = self.api_base +  '/'.join([self.upload_path, env.temp['uid']])
         env.resp.status = http.CREATED
 
     def head(self, env):
@@ -390,7 +391,7 @@ class TusFilter(object):
         env.info['upload_metadata'] = upload_metadata
 
     def get_uid_from_url(self, url):
-        path = urlparse.urlparse(url).path
+        path = urlparse.unquote(urlparse.urlparse(url).path)
         uid = path[len(self.upload_path)+1:]
         if uid == '.':
             return None
@@ -417,7 +418,7 @@ class TusFilter(object):
             env.req.body = self.get_fpath(env).encode('utf-8')
 
     def create_files(self, env):
-        self.sdm.cleanup(self.expire)
+        # self.sdm.cleanup(self.expire)  # need clean else
         info = dict()
         info['partial'] = env.info.get('partial', False)
         info['parts'] = env.info.get('parts')
@@ -553,5 +554,5 @@ class TusFilter(object):
         return offset
 
     def finish_error(self, env, error):
-        env.resp.status = '%i %s' % (error.status_code, error.reason)
+        env.resp.status = '%i %s' % (getattr(error, 'status_code', 0), error.reason)
 
