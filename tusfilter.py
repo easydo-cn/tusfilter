@@ -541,7 +541,7 @@ class TusFilter(object):
         if cur_length != -1 and length != cur_length:
             raise ConflictUploadLengthError()
 
-        body = env.req.body_file
+        body = env.req.body_file_seekable
         body.seek(0)
         offset = self.sdm.multiput(info['device'], info['session_id'], body.read())
 
